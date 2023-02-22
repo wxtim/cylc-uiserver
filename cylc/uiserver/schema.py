@@ -284,10 +284,12 @@ class UISSubscriptions(Subscriptions):
             task,
             file
         ):
-            yield {'lines': item}
+            print(item)
+            yield item
 
     class Logs(graphene.ObjectType):
         lines = graphene.List(graphene.String)
+        status = graphene.String
 
     logs = graphene.Field(
         Logs,

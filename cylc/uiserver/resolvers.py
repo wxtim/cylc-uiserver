@@ -370,7 +370,7 @@ class Services:
                     if proc.returncode not in [None, 0]:
                         (_, stderr) = await proc.communicate()
                         # pass any error onto ui
-                        yield stderr.decode().splitlines()
+                        yield stderr.decode().splitlines(), 'FAILED'
                         break
                     # sleep set at 1, which matches the `tail` default interval
                     await asyncio.sleep(1)
@@ -503,4 +503,8 @@ class Resolvers(BaseResolvers):
             task,
             file
         ):
-            yield ret
+            status = 'FAILURE' if len(ret) == 2 else 'SUCCESS'
+            yield {
+                'lines': ret,
+                'status': status
+            }
