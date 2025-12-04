@@ -66,7 +66,13 @@ jobs:
           
 
       - name: install cylc-uiserver
-        run: pip install -e .[all]
+        run: |
+          pip install -e .[all]
+          echo "PWD is: "
+          pwd
+          echo "ls: "
+          ls
+
 
       - name: Style test
         if: startsWith(matrix.os, 'ubuntu')
