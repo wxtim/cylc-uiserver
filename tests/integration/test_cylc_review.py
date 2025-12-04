@@ -72,7 +72,7 @@ def run_cylc_review(request):
     [["8666", 10, 'foo/cylc']],
     indirect=['run_cylc_review']
 )
-def test_basic_path(run_cylc_review):  
+def test_basic_path(run_cylc_review):
     """The CLI --service-root option changes the path to Cylc Review."""
     expect = {
         'logo': 'cylc-logo.png',
