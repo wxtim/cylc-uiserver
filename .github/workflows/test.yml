@@ -54,10 +54,11 @@ jobs:
             coreutils
 
       - name: install cylc-flow
-        uses: cylc/release-actions/install-cylc-components@v1
+        uses: wxtim/release-actions/install-cylc-components@v1
         with:
           cylc_flow: true
           cylc_flow_opts: ''
+          editable_installations: true
 
       - name: install cylc-uiserver
         run: pip install -e .[all]
@@ -76,8 +77,30 @@ jobs:
       - name: Test
         run: pytest
 
+      - name: Cylc Review tests
+        run: |
+          CONF_PATH="$HOME/.cylc/flow/8"
+          mkdir -p "$CONF_PATH"
+          touch "$CONF_PATH/global.cylc"
+          ln -s "$CONF_PATH/global.cylc" "$CONF_PATH/global-tests.cylc"
+
+          cat >> "$CONF_PATH/global.cylc" <<__HERE__
+          [platforms]
+            [[_local_background_indep_tcp]]
+              hosts = localhost
+              install target = localhost
+              ssh command = ssh -oBatchMode=yes -oConnectTimeout=8 -oStrictHostKeyChecking=no
+          __HERE__
+
+          # Check that Cylc Review is ready to run
+          export CYLC_COVERAGE=1
+          cylc review --help || exit 1
+
+          ./etc/bin/run-functional-tests
+
       - name: Coverage report
         run: |
+          coverage combine
           coverage xml --ignore-errors
           coverage report
 
