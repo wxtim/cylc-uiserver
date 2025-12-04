@@ -54,7 +54,7 @@ jobs:
             coreutils
 
       - name: install cylc-flow
-        uses: wxtim/release-actions/install-cylc-components@v1
+        uses: cylc/release-actions/install-cylc-components@v1
         with:
           cylc_flow: true
           cylc_flow_opts: ''
@@ -79,6 +79,7 @@ jobs:
 
       - name: Cylc Review tests
         run: |
+          pip install -e https+git://github.com/wxtim/cylc-flow@feat.cylc-review#egg=cylc-flow --no-deps --no-build-dist
           CONF_PATH="$HOME/.cylc/flow/8"
           mkdir -p "$CONF_PATH"
           touch "$CONF_PATH/global.cylc"
