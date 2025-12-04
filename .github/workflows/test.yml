@@ -65,7 +65,7 @@ jobs:
 
       - name: Style test
         if: startsWith(matrix.os, 'ubuntu')
-        run: flake8
+        run: flake8 cylc/uiserver/* tests/unit/* tests/integration/*
 
       - name: Type checking
         if: startsWith(matrix.os, 'ubuntu')
