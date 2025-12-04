@@ -79,7 +79,7 @@ jobs:
 
       - name: Cylc Review tests
         run: |
-          pip install -e git+https://github.com/wxtim/cylc-flow@feat.cylc-review#egg=cylc-flow --no-deps --no-build-dist
+          pip install -e git+https://github.com/wxtim/cylc-flow@feat.cylc-review#egg=cylc-flow --no-deps
           CONF_PATH="$HOME/.cylc/flow/8"
           mkdir -p "$CONF_PATH"
           touch "$CONF_PATH/global.cylc"
