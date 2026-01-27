@@ -21,6 +21,7 @@ from typing import Union
 from unittest.mock import Mock
 
 from cylc.flow.id import Tokens
+from cylc.flow.rundb import CylcWorkflowDAO
 from graphene.test import Client
 import pytest
 
@@ -33,60 +34,78 @@ from cylc.uiserver.schema import (
 )
 
 
-def make_db(task_entries, task_events=None):
+CREATE_TABLE_TEMPLATE = """
+CREATE TABLE
+    {name}(
+        {keys}{primary_keys}
+    );
+"""
+
+
+def extract_db_key(val):
+    """Get key, type and whether key is primary from row of a Cylc definition
+    table.
+
+    Examples:
+    >>> extract_db_key(
+    ...     ('foo', {'datatype': 'IRRATIONAL', 'is_primary_key': False})
+    ... )
+    ('foo', 'IRRATIONAL', False)
+    """
+    key = val[0]
+
+    type_ = 'TEXT'
+    if len(val) > 1 and 'datatype' in val[1]:
+        type_ = val[1]['datatype']
+
+    is_primary = False
+    if len(val) > 1 and 'is_primary_key' in val[1]:
+        is_primary = val[1]['is_primary_key']
+
+    return key, type_, is_primary
+
+
+def extract_db_table_creation(name):
+    """Get a table creation SQL command from cylc.flow.rundb
+    """
+    key_rows = []
+    primary_keys = []
+    for key_info in CylcWorkflowDAO.TABLES_ATTRS[name]:
+        key, type_, is_primary = extract_db_key(key_info)
+        key_rows.append(f'{key} {type_}')
+        if is_primary:
+            primary_keys.append(key)
+    primary_keys = f',\nPRIMARY KEY({", ".join(primary_keys)})' if primary_keys else ''
+    return CREATE_TABLE_TEMPLATE.format(name=name, keys=',\n        '.join(key_rows), primary_keys=primary_keys)
+
+
+@pytest.fixture
+def make_db():
     """Create a DB and populate the task_jobs table."""
-    conn = sqlite3.connect(':memory:')
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        '''
-        CREATE TABLE
-            task_jobs(
-                cycle TEXT,
-                name TEXT,
-                submit_num INTEGER,
-                flow_nums TEXT,
-                is_manual_submit INTEGER,
-                try_num INTEGER,
-                time_submit TEXT,
-                time_submit_exit TEXT,
-                submit_status INTEGER,
-                time_run TEXT,
-                time_run_exit TEXT,
-                run_signal TEXT,
-                run_status INTEGER,
-                platform_name TEXT,
-                job_runner_name TEXT,
-                job_id TEXT,
-                PRIMARY KEY(cycle, name, submit_num)
-            );
-    '''
-    )
+    def _inner(task_entries, task_events=None):
+        conn = sqlite3.connect(':memory:')
+        conn.row_factory = sqlite3.Row
 
-    conn.execute(
-        '''
-        CREATE TABLE 
-            task_events(
-                cycle TEXT, 
-                name TEXT, 
-                submit_num INTEGER,
-                time TEXT, 
-                event TEXT, 
-                message TEXT);''')
+        conn.execute(
+            extract_db_table_creation(CylcWorkflowDAO.TABLE_TASK_JOBS))
+        conn.execute(
+            extract_db_table_creation(CylcWorkflowDAO.TABLE_TASK_EVENTS))
 
-    conn.executemany(
-        'INSERT into task_jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-        task_entries
-    )
-    if task_events:
         conn.executemany(
-            'INSERT into task_events VALUES (?,?,?,?,?,?)',
-            task_events
+            'INSERT into task_jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+            task_entries
         )
-    conn.commit()
-    return conn
+        if task_events:
+            conn.executemany(
+                'INSERT into task_events VALUES (?,?,?,?,?,?)',
+                task_events
+            )
+        conn.commit()
+        return conn
+    yield _inner
 
 
-def test_make_task_query_1():
+def test_make_task_query_1(make_db):
     conn = make_db(
         task_entries=[(
             '1',
@@ -184,7 +203,7 @@ def test_make_task_query_1():
     assert ret['mem_alloc'] == 1048576
 
 
-def test_make_task_query_2():
+def test_make_task_query_2(make_db):
     conn = make_db(
         task_entries=[
             (
@@ -324,7 +343,7 @@ def test_make_task_query_2():
     assert ret['submitted_time'] == '2022-12-15T15:00:00Z'
 
 
-def test_make_task_query_3():
+def test_make_task_query_3(make_db):
     conn = make_db(
         task_entries=[
             (
@@ -514,7 +533,7 @@ def test_make_task_query_3():
     assert ret['submitted_time'] == '2022-12-16T15:00:00Z'
 
 
-def test_make_task_query_different_platforms():
+def test_make_task_query_different_platforms(make_db):
     """We should get different entries for tasks that submited to different
     platforms on different cycles.
 
@@ -542,7 +561,7 @@ def test_make_task_query_different_platforms():
     assert return_value[2]['platform'] == 'MyPlatform3'
 
 
-def test_make_jobs_query_1():
+def test_make_jobs_query_1(make_db):
     conn = make_db(
         task_entries=[
             (
@@ -841,7 +860,7 @@ async def test_get_elements(
     ) == expected
 
 
-async def test_job_query_filter():
+async def test_job_query_filter(make_db):
     def make_job(task_name, submit_status, run_status, started):
         submit_start = submit_end = run_start = run_end = None
         if submit_status:
@@ -1011,7 +1030,7 @@ async def test_job_query_filter():
         id="selects-latest-jobs"
     )
 ])
-async def test_jobNN_query(jobs, query, expected):
+async def test_jobNN_query(jobs, query, expected, make_db):
     """Jobs query should handle job 'NN'."""
     def make_job(cycle: Union[str, int], name: str, submit_num: int):
         return (
@@ -1040,7 +1059,7 @@ async def test_jobNN_query(jobs, query, expected):
     assert {item['id'].relative_id for item in result} == expected
 
 
-async def test_e2e_jobs_query(monkeypatch: pytest.MonkeyPatch):
+async def test_e2e_jobs_query(monkeypatch: pytest.MonkeyPatch, make_db):
     """End-to-end test for non-live jobs query."""
     entry = {
         'id': 'wflow//5/mytask/02',
@@ -1076,7 +1095,7 @@ async def test_e2e_jobs_query(monkeypatch: pytest.MonkeyPatch):
             entry['platform'],
             entry['jobRunnerName'],
             entry['jobId'],
-        )])
+    )])
     mock_dao = Mock(
         return_value=Mock(
             __enter__=Mock(return_value=Mock(connect=lambda: conn)),
