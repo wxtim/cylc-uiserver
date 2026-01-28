@@ -79,273 +79,38 @@ def extract_db_table_creation(name):
     return CREATE_TABLE_TEMPLATE.format(name=name, keys=',\n        '.join(key_rows), primary_keys=primary_keys)
 
 
-@pytest.fixture
-def make_db():
+def make_db(task_entries, task_events=None):
     """Create a DB and populate the task_jobs table."""
-    def _inner(task_entries, task_events=None):
-        conn = sqlite3.connect(':memory:')
-        conn.row_factory = sqlite3.Row
+    conn = sqlite3.connect(':memory:')
+    conn.row_factory = sqlite3.Row
 
-        conn.execute(
-            extract_db_table_creation(CylcWorkflowDAO.TABLE_TASK_JOBS))
-        conn.execute(
-            extract_db_table_creation(CylcWorkflowDAO.TABLE_TASK_EVENTS))
+    conn.execute(
+        extract_db_table_creation(CylcWorkflowDAO.TABLE_TASK_JOBS))
+    conn.execute(
+        extract_db_table_creation(CylcWorkflowDAO.TABLE_TASK_EVENTS))
 
+    conn.executemany(
+        'INSERT into task_jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        task_entries
+    )
+    if task_events:
         conn.executemany(
-            'INSERT into task_jobs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
-            task_entries
+            'INSERT into task_events VALUES (?,?,?,?,?,?)',
+            task_events
         )
-        if task_events:
-            conn.executemany(
-                'INSERT into task_events VALUES (?,?,?,?,?,?)',
-                task_events
-            )
-        conn.commit()
-        return conn
-    yield _inner
-
-
-def test_make_task_query_1(make_db):
-    conn = make_db(
-        task_entries=[(
-            '1',
-            'Task_1',
-            1,
-            '[1]',
-            0,
-            1,
-            '2022-12-14T15:00:00Z',
-            '2022-12-14T15:01:00Z',
-            0,
-            '2022-12-14T15:01:00Z',
-            '2022-12-14T15:10:00Z',
-            None,
-            0,
-            'MyPlatform',
-            'User',
-            'UsersJob',
-        )],
-        task_events=[
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:00:00Z',
-                1,
-                'submitted',
-                ''
-            ),
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:01:00Z',
-                1,
-                'started',
-                ''
-            ),
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:10:00Z',
-                1,
-                'succeeded',
-                ''
-            ),
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:10:00Z',
-                1,
-                'message debug',
-                'cpu_time 994 max_rss 40064 mem_alloc 1048576'
-            )
-        ]
-    )
-    workflow = Tokens('~user/workflow')
-
-    ret = run_task_query(conn, workflow)[0]
-
-    assert ret['count'] == 1
-    assert ret['cycle_point'] == '1'
-    assert ret['finished_time'] == '2022-12-14T15:10:00Z'
-    assert ret['queue_quartiles'] == [60, 60, 60]
-    assert ret['run_quartiles'] == [540, 540, 540]
-    assert ret['total_quartiles'] == [600, 600, 600]
-    assert ret['max_rss_quartiles'] == [40064, 40064, 40064]
-    assert ret['cpu_time_quartiles'] == [994, 994, 994]
-    assert ret['id'].id == '~user/workflow//1/Task_1/01'
-    assert ret['job_id'] == 'UsersJob'
-    assert ret['max_queue_time'] == 60
-    assert ret['max_run_time'] == 540
-    assert ret['max_total_time'] == 600
-    assert ret['max_max_rss'] == 40064
-    assert ret['max_cpu_time'] == 994
-    assert ret['mean_queue_time'] == pytest.approx(60.0, 0.01)
-    assert ret['mean_run_time'] == pytest.approx(540.0, 0.01)
-    assert ret['mean_total_time'] == pytest.approx(600.0, 0.01)
-    assert ret['mean_max_rss'] == pytest.approx(40064.0, 0.01)
-    assert ret['mean_cpu_time'] == pytest.approx(994.0, 0.01)
-    assert ret['min_queue_time'] == 60
-    assert ret['min_run_time'] == 540
-    assert ret['min_total_time'] == 600
-    assert ret['min_max_rss'] == 40064
-    assert ret['min_cpu_time'] == 994
-    assert ret['name'] == 'Task_1'
-    assert ret['platform'] == 'MyPlatform'
-    assert ret['started_time'] == '2022-12-14T15:01:00Z'
-    assert ret['state'] == 'succeeded'
-    assert ret['std_dev_queue_time'] == pytest.approx(0.0, 0.01)
-    assert ret['std_dev_run_time'] == pytest.approx(0.0, 0.01)
-    assert ret['std_dev_total_time'] == pytest.approx(0.0, 0.01)
-    assert ret['std_dev_max_rss'] == pytest.approx(0.0, 0.01)
-    assert ret['std_dev_cpu_time'] == pytest.approx(0.0, 0.01)
-    assert ret['submit_num'] == 1
-    assert ret['submitted_time'] == '2022-12-14T15:00:00Z'
-    assert ret['mem_alloc'] == 1048576
-
-
-def test_make_task_query_2(make_db):
-    conn = make_db(
-        task_entries=[
-            (
-                '1',
-                'Task_1',
-                1,
-                '[1]',
-                0,
-                1,
-                '2022-12-14T15:00:00Z',
-                '2022-12-14T15:01:00Z',
-                0,
-                '2022-12-14T15:01:00Z',
-                '2022-12-14T15:10:00Z',
-                None,
-                0,
-                'MyPlatform',
-                'User',
-                'UsersJob',
-            ),
-            (
-                '2',
-                'Task_1',
-                1,
-                '[1]',
-                0,
-                1,
-                '2022-12-15T15:00:00Z',
-                '2022-12-15T15:01:15Z',
-                0,
-                '2022-12-15T15:01:16Z',
-                '2022-12-15T15:12:00Z',
-                None,
-                0,
-                'MyPlatform',
-                'User',
-                'UsersJob',
-            )
-        ],
-        task_events=[
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:00:00Z',
-                1,
-                'submitted',
-                ''
-            ),
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:01:00Z',
-                1,
-                'started',
-                ''
-            ),
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:10:00Z',
-                1,
-                'succeeded',
-                ''
-            ),
-            (
-                'Task_1',
-                '1',
-                '2022-12-14T15:10:00Z',
-                1,
-                'message debug',
-                'cpu_time 994 max_rss 40064'
-            ),
-            (
-                'Task_1',
-                '2',
-                '2022-12-14T16:00:00Z',
-                1,
-                'submitted',
-                ''
-            ),
-            (
-                'Task_1',
-                '2',
-                '2022-12-14T16:01:00Z',
-                1,
-                'started',
-                ''
-            ),
-            (
-                'Task_1',
-                '2',
-                '2022-12-14T16:10:00Z',
-                1,
-                'succeeded',
-                ''
-            ),
-            (
-                'Task_1',
-                '2',
-                '2022-12-14T16:10:00Z',
-                1,
-                'message debug',
-                'cpu_time 1994 max_rss 50064'
-            ),
-        ]
-    )
     conn.commit()
-    workflow = Tokens('~user/workflow')
-
-    ret = run_task_query(conn, workflow)[0]
-
-    assert ret['count'] == 2
-    assert ret['cycle_point'] == '2'
-    assert ret['finished_time'] == '2022-12-15T15:12:00Z'
-    assert ret['queue_quartiles'] == [60, 76, 60]
-    assert ret['run_quartiles'] == [540, 644, 540]
-    assert ret['total_quartiles'] == [600, 720, 600]
-    assert ret['id'].id == '~user/workflow//2/Task_1/01'
-    assert ret['job_id'] == 'UsersJob'
-    assert ret['max_queue_time'] == 76
-    assert ret['max_run_time'] == 644
-    assert ret['max_total_time'] == 720
-    assert ret['mean_queue_time'] == pytest.approx(68.0, 0.01)
-    assert ret['mean_run_time'] == pytest.approx(592.0, 0.01)
-    assert ret['mean_total_time'] == pytest.approx(660.0, 0.01)
-    assert ret['min_queue_time'] == 60
-    assert ret['min_run_time'] == 540
-    assert ret['min_total_time'] == 600
-    assert ret['name'] == 'Task_1'
-    assert ret['platform'] == 'MyPlatform'
-    assert ret['started_time'] == '2022-12-15T15:01:16Z'
-    assert ret['state'] == 'succeeded'
-    assert ret['std_dev_queue_time'] == pytest.approx(8.00, 0.01)
-    assert ret['std_dev_run_time'] == pytest.approx(52.0, 0.01)
-    assert ret['std_dev_total_time'] == pytest.approx(60.0, 0.01)
-    assert ret['submit_num'] == 1
-    assert ret['submitted_time'] == '2022-12-15T15:00:00Z'
+    return conn
 
 
-def test_make_task_query_3(make_db):
-    conn = make_db(
-        task_entries=[
+@pytest.fixture(scope='module')
+def setupdb_1task_3cycles():
+    """Create a database with:
+    * 1 task at run successfully
+    * 3 cycle points
+    * Returning profiler data
+    """
+    return make_db(
+        task_entries = [
             (
                 '1',
                 'Task_1',
@@ -500,68 +265,107 @@ def test_make_task_query_3(make_db):
             ),
         ]
     )
-    conn.commit()
+
+
+def test_make_task_query_1():
+    conn = make_db(
+        task_entries=[(
+            '1',
+            'Task_1',
+            1,
+            '[1]',
+            0,
+            1,
+            '2022-12-14T15:00:00Z',
+            '2022-12-14T15:01:00Z',
+            0,
+            '2022-12-14T15:01:00Z',
+            '2022-12-14T15:10:00Z',
+            None,
+            0,
+            'MyPlatform',
+            'User',
+            'UsersJob',
+        )],
+        task_events=[
+            (
+                'Task_1',
+                '1',
+                '2022-12-14T15:00:00Z',
+                1,
+                'submitted',
+                ''
+            ),
+            (
+                'Task_1',
+                '1',
+                '2022-12-14T15:01:00Z',
+                1,
+                'started',
+                ''
+            ),
+            (
+                'Task_1',
+                '1',
+                '2022-12-14T15:10:00Z',
+                1,
+                'succeeded',
+                ''
+            ),
+            (
+                'Task_1',
+                '1',
+                '2022-12-14T15:10:00Z',
+                1,
+                'message debug',
+                'cpu_time 994 max_rss 40064 mem_alloc 1048576'
+            )
+        ]
+    )
     workflow = Tokens('~user/workflow')
 
     ret = run_task_query(conn, workflow)[0]
 
-    assert ret['count'] == 3
-    assert ret['cycle_point'] == '3'
-    assert ret['finished_time'] == '2022-12-16T15:12:00Z'
-    assert ret['queue_quartiles'] == [60, 76, 76]
-    assert ret['run_quartiles'] == [540, 644, 644]
-    assert ret['total_quartiles'] == [600, 720, 720]
-    assert ret['id'].id == '~user/workflow//3/Task_1/01'
+    assert ret['count'] == 1
+    assert ret['cycle_point'] == '1'
+    assert ret['finished_time'] == '2022-12-14T15:10:00Z'
+    assert ret['queue_quartiles'] == [60, 60, 60]
+    assert ret['run_quartiles'] == [540, 540, 540]
+    assert ret['total_quartiles'] == [600, 600, 600]
+    assert ret['max_rss_quartiles'] == [40064, 40064, 40064]
+    assert ret['cpu_time_quartiles'] == [994, 994, 994]
+    assert ret['id'].id == '~user/workflow//1/Task_1/01'
     assert ret['job_id'] == 'UsersJob'
-    assert ret['max_queue_time'] == 76
-    assert ret['max_run_time'] == 644
-    assert ret['max_total_time'] == 720
-    assert ret['mean_queue_time'] == pytest.approx(70.66, 0.01)
-    assert ret['mean_run_time'] == pytest.approx(609.33, 0.01)
-    assert ret['mean_total_time'] == pytest.approx(680.0, 0.01)
+    assert ret['max_queue_time'] == 60
+    assert ret['max_run_time'] == 540
+    assert ret['max_total_time'] == 600
+    assert ret['max_max_rss'] == 40064
+    assert ret['max_cpu_time'] == 994
+    assert ret['mean_queue_time'] == pytest.approx(60.0, 0.01)
+    assert ret['mean_run_time'] == pytest.approx(540.0, 0.01)
+    assert ret['mean_total_time'] == pytest.approx(600.0, 0.01)
+    assert ret['mean_max_rss'] == pytest.approx(40064.0, 0.01)
+    assert ret['mean_cpu_time'] == pytest.approx(994.0, 0.01)
     assert ret['min_queue_time'] == 60
     assert ret['min_run_time'] == 540
     assert ret['min_total_time'] == 600
+    assert ret['min_max_rss'] == 40064
+    assert ret['min_cpu_time'] == 994
     assert ret['name'] == 'Task_1'
     assert ret['platform'] == 'MyPlatform'
-    assert ret['started_time'] == '2022-12-16T15:01:16Z'
+    assert ret['started_time'] == '2022-12-14T15:01:00Z'
     assert ret['state'] == 'succeeded'
-    assert ret['std_dev_queue_time'] == pytest.approx(7.54, 0.01)
-    assert ret['std_dev_run_time'] == pytest.approx(49.02, 0.01)
-    assert ret['std_dev_total_time'] == pytest.approx(56.56, 0.01)
+    assert ret['std_dev_queue_time'] == pytest.approx(0.0, 0.01)
+    assert ret['std_dev_run_time'] == pytest.approx(0.0, 0.01)
+    assert ret['std_dev_total_time'] == pytest.approx(0.0, 0.01)
+    assert ret['std_dev_max_rss'] == pytest.approx(0.0, 0.01)
+    assert ret['std_dev_cpu_time'] == pytest.approx(0.0, 0.01)
     assert ret['submit_num'] == 1
-    assert ret['submitted_time'] == '2022-12-16T15:00:00Z'
+    assert ret['submitted_time'] == '2022-12-14T15:00:00Z'
+    assert ret['mem_alloc'] == 1048576
 
 
-def test_make_task_query_different_platforms(make_db):
-    """We should get different entries for tasks that submited to different
-    platforms on different cycles.
-
-    https://github.com/cylc/cylc-uiserver/issues/696
-    """
-
-    middle_values = (
-        'Task_1', '01', '[1]', 0, 1, '2022-12-14T15:00:00Z',
-        '2022-12-14T15:01:00Z', 0, '2022-12-14T15:01:00Z',
-        '2022-12-14T15:10:00Z', None, 0,
-    )
-    conn = make_db(task_entries=[
-        ('1', *middle_values, 'MyPlatform', 'User', 'UsersJob'),
-        ('2', *middle_values, 'MyPlatform2', 'User', 'UsersJob'),
-        ('3', *middle_values, 'MyPlatform3', 'User', 'UsersJob'),
-    ])
-
-    conn.commit()
-    workflow = Tokens('~user/workflow')
-
-    return_value = run_task_query(conn, workflow)
-
-    assert return_value[0]['platform'] == 'MyPlatform'
-    assert return_value[1]['platform'] == 'MyPlatform2'
-    assert return_value[2]['platform'] == 'MyPlatform3'
-
-
-def test_make_jobs_query_1(make_db):
+def test_make_task_query_2():
     conn = make_db(
         task_entries=[
             (
@@ -594,24 +398,6 @@ def test_make_jobs_query_1(make_db):
                 0,
                 '2022-12-15T15:01:16Z',
                 '2022-12-15T15:12:00Z',
-                None,
-                0,
-                'MyPlatform',
-                'User',
-                'UsersJob',
-            ),
-            (
-                '3',
-                'Task_1',
-                1,
-                '[1]',
-                0,
-                1,
-                '2022-12-16T15:00:00Z',
-                '2022-12-16T15:01:15Z',
-                0,
-                '2022-12-16T15:01:16Z',
-                '2022-12-16T15:12:00Z',
                 None,
                 0,
                 'MyPlatform',
@@ -650,7 +436,7 @@ def test_make_jobs_query_1(make_db):
                 '2022-12-14T15:10:00Z',
                 1,
                 'message debug',
-                '{    "max_rss": 40064,    "cpu_time": 994}'
+                'cpu_time 994 max_rss 40064'
             ),
             (
                 'Task_1',
@@ -682,42 +468,108 @@ def test_make_jobs_query_1(make_db):
                 '2022-12-14T16:10:00Z',
                 1,
                 'message debug',
-                '{    "max_rss": 50064,    "cpu_time": 1994}'
-            ),
-            (
-                'Task_1',
-                '3',
-                '2022-12-14T17:00:00Z',
-                1,
-                'submitted',
-                ''
-            ),
-            (
-                'Task_1',
-                '3',
-                '2022-12-14T17:01:00Z',
-                1,
-                'started',
-                ''
-            ),
-            (
-                'Task_1',
-                '3',
-                '2022-12-14T17:10:00Z',
-                1,
-                'succeeded',
-                ''
-            ),
-            (
-                'Task_1',
-                '3',
-                '2022-12-14T17:10:00Z',
-                1,
-                'message_debug',
-                '{    "max_rss": 60064,    "cpu_time": 2994}'
+                'cpu_time 1994 max_rss 50064'
             ),
         ]
     )
+    conn.commit()
+    workflow = Tokens('~user/workflow')
+
+    ret = run_task_query(conn, workflow)[0]
+
+    assert ret['count'] == 2
+    assert ret['cycle_point'] == '2'
+    assert ret['finished_time'] == '2022-12-15T15:12:00Z'
+    assert ret['queue_quartiles'] == [60, 76, 60]
+    assert ret['run_quartiles'] == [540, 644, 540]
+    assert ret['total_quartiles'] == [600, 720, 600]
+    assert ret['id'].id == '~user/workflow//2/Task_1/01'
+    assert ret['job_id'] == 'UsersJob'
+    assert ret['max_queue_time'] == 76
+    assert ret['max_run_time'] == 644
+    assert ret['max_total_time'] == 720
+    assert ret['mean_queue_time'] == pytest.approx(68.0, 0.01)
+    assert ret['mean_run_time'] == pytest.approx(592.0, 0.01)
+    assert ret['mean_total_time'] == pytest.approx(660.0, 0.01)
+    assert ret['min_queue_time'] == 60
+    assert ret['min_run_time'] == 540
+    assert ret['min_total_time'] == 600
+    assert ret['name'] == 'Task_1'
+    assert ret['platform'] == 'MyPlatform'
+    assert ret['started_time'] == '2022-12-15T15:01:16Z'
+    assert ret['state'] == 'succeeded'
+    assert ret['std_dev_queue_time'] == pytest.approx(8.00, 0.01)
+    assert ret['std_dev_run_time'] == pytest.approx(52.0, 0.01)
+    assert ret['std_dev_total_time'] == pytest.approx(60.0, 0.01)
+    assert ret['submit_num'] == 1
+    assert ret['submitted_time'] == '2022-12-15T15:00:00Z'
+
+
+def test_make_task_query_3(setupdb_1task_3cycles):
+    conn = setupdb_1task_3cycles
+    conn.commit()
+    workflow = Tokens('~user/workflow')
+
+    ret = run_task_query(conn, workflow)[0]
+
+    assert ret['count'] == 3
+    assert ret['cycle_point'] == '3'
+    assert ret['finished_time'] == '2022-12-16T15:12:00Z'
+    assert ret['queue_quartiles'] == [60, 76, 76]
+    assert ret['run_quartiles'] == [540, 644, 644]
+    assert ret['total_quartiles'] == [600, 720, 720]
+    assert ret['id'].id == '~user/workflow//3/Task_1/01'
+    assert ret['job_id'] == 'UsersJob'
+    assert ret['max_queue_time'] == 76
+    assert ret['max_run_time'] == 644
+    assert ret['max_total_time'] == 720
+    assert ret['mean_queue_time'] == pytest.approx(70.66, 0.01)
+    assert ret['mean_run_time'] == pytest.approx(609.33, 0.01)
+    assert ret['mean_total_time'] == pytest.approx(680.0, 0.01)
+    assert ret['min_queue_time'] == 60
+    assert ret['min_run_time'] == 540
+    assert ret['min_total_time'] == 600
+    assert ret['name'] == 'Task_1'
+    assert ret['platform'] == 'MyPlatform'
+    assert ret['started_time'] == '2022-12-16T15:01:16Z'
+    assert ret['state'] == 'succeeded'
+    assert ret['std_dev_queue_time'] == pytest.approx(7.54, 0.01)
+    assert ret['std_dev_run_time'] == pytest.approx(49.02, 0.01)
+    assert ret['std_dev_total_time'] == pytest.approx(56.56, 0.01)
+    assert ret['submit_num'] == 1
+    assert ret['submitted_time'] == '2022-12-16T15:00:00Z'
+
+
+def test_make_task_query_different_platforms():
+    """We should get different entries for tasks that submited to different
+    platforms on different cycles.
+
+    https://github.com/cylc/cylc-uiserver/issues/696
+    """
+
+    middle_values = (
+        'Task_1', '01', '[1]', 0, 1, '2022-12-14T15:00:00Z',
+        '2022-12-14T15:01:00Z', 0, '2022-12-14T15:01:00Z',
+        '2022-12-14T15:10:00Z', None, 0,
+    )
+    conn = make_db(task_entries=[
+        ('1', *middle_values, 'MyPlatform', 'User', 'UsersJob'),
+        ('2', *middle_values, 'MyPlatform2', 'User', 'UsersJob'),
+        ('3', *middle_values, 'MyPlatform3', 'User', 'UsersJob'),
+    ])
+
+    conn.commit()
+    workflow = Tokens('~user/workflow')
+
+    return_value = run_task_query(conn, workflow)
+
+    assert return_value[0]['platform'] == 'MyPlatform'
+    assert return_value[1]['platform'] == 'MyPlatform2'
+    assert return_value[2]['platform'] == 'MyPlatform3'
+
+
+def test_make_jobs_query_1(setupdb_1task_3cycles):
+    conn = setupdb_1task_3cycles
     conn.commit()
     workflow = Tokens('~user/workflow')
     tasks = []
@@ -860,7 +712,7 @@ async def test_get_elements(
     ) == expected
 
 
-async def test_job_query_filter(make_db):
+async def test_job_query_filter():
     def make_job(task_name, submit_status, run_status, started):
         submit_start = submit_end = run_start = run_end = None
         if submit_status:
@@ -1030,7 +882,7 @@ async def test_job_query_filter(make_db):
         id="selects-latest-jobs"
     )
 ])
-async def test_jobNN_query(jobs, query, expected, make_db):
+async def test_jobNN_query(jobs, query, expected):
     """Jobs query should handle job 'NN'."""
     def make_job(cycle: Union[str, int], name: str, submit_num: int):
         return (
@@ -1059,7 +911,7 @@ async def test_jobNN_query(jobs, query, expected, make_db):
     assert {item['id'].relative_id for item in result} == expected
 
 
-async def test_e2e_jobs_query(monkeypatch: pytest.MonkeyPatch, make_db):
+async def test_e2e_jobs_query(monkeypatch: pytest.MonkeyPatch):
     """End-to-end test for non-live jobs query."""
     entry = {
         'id': 'wflow//5/mytask/02',
